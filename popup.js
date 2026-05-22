@@ -94,16 +94,6 @@ async function runInPage(cfg) {
             return { cases: withFlags };
           }
 
-          // ── Postar comentário ───────────────────────────────
-          if (config.action === "post_comment") {
-            await api(
-              "/api/now/table/sn_customerservice_case/" + config.sysId,
-              "PATCH",
-              { comments: config.comment }
-            );
-            return { ok: true };
-          }
-
           return { error: "unknown action" };
         } catch(e) {
           return { error: e.message };
@@ -137,7 +127,7 @@ function renderCases() {
     const stChip = c.hasFirstResponse
       ? `<span class="chip chip-ok">✓ Respondido</span>`
       : isP1
-        ? `<span class="chip" style="background:#2d1a1a;color:#f87171">🚫 P1 — ignorado</span>`
+        ? `<span class="chip" style="background:#2d1a1a;color:#f87171">🚨 P1 sem resposta</span>`
         : `<span class="chip chip-warn">⚠ Sem resposta</span>`;
     const account = c.account?.display_value || c.account || "";
 
@@ -152,18 +142,8 @@ function renderCases() {
           ${account ? `<div class="case-account">${esc(account)}</div>` : ""}
           <div class="case-chips">${langChip}${stChip}</div>
         </div>
-        ${c.hasFirstResponse
-          ? `<button class="btn-send btn-sent" disabled>✓</button>`
-          : isP1
-            ? `<button class="btn-send" disabled style="background:var(--subtle);color:var(--muted)" title="P1 não recebe resposta automática">P1</button>`
-            : `<button class="btn-send" id="btn-${c.sys_id}">Enviar</button>`
-        }
+        <button class="btn-send" disabled style="background:var(--subtle);color:var(--muted)" title="Somente notificação">Notificar</button>
       </div>`;
-
-    if (!c.hasFirstResponse) {
-      card.querySelector("#btn-" + c.sys_id)
-          .addEventListener("click", () => sendOne(c));
-    }
     caseListEl.appendChild(card);
   });
 }
@@ -174,48 +154,7 @@ function updateSummaryNums() {
   $("btn-send-all").disabled = cases.filter(c => !c.hasFirstResponse).length === 0;
 }
 
-// ── Send ──────────────────────────────────────────────────────
-async function sendOne(c) {
-  const btn  = $("btn-" + c.sys_id);
-  const card = $("card-" + c.sys_id);
-  if (!btn || c.hasFirstResponse) return;
-  if ((c.priority || "").startsWith("1")) return; // ignora P1
-
-  btn.disabled = true;
-  btn.textContent = "…";
-  if (card) card.className = "case-card sending";
-
-  const result = await runInPage({
-    action:  "post_comment",
-    sysId:   c.sys_id,
-    comment: buildComment(c)
-  });
-
-  if (result?.ok) {
-    c.hasFirstResponse = true;
-    if (btn) { btn.className = "btn-send btn-sent"; btn.textContent = "✓"; }
-    if (card) card.className = "case-card done";
-    updateSummaryNums();
-  } else {
-    if (btn) { btn.disabled = false; btn.textContent = "Retry"; }
-    if (card) card.className = "case-card needs";
-    stError.textContent = "Erro ao enviar " + c.number + ": " + (result?.error || "desconhecido");
-    stError.style.display = "block";
-  }
-}
-
-async function sendAll() {
-  if (sendingInProgress) return;
-  sendingInProgress = true;
-  const btn = $("btn-send-all");
-  btn.disabled = true;
-  btn.textContent = "Enviando…";
-  for (const c of cases.filter(x => !x.hasFirstResponse)) {
-    await sendOne(c);
-  }
-  btn.textContent = "Responder todos";
-  sendingInProgress = false;
-}
+// ── Send removido: extensão em modo somente notificação
 
 // ── Load queue ────────────────────────────────────────────────
 async function loadQueue(silent = false) {
@@ -254,14 +193,7 @@ async function loadQueue(silent = false) {
     return;
   }
 
-  // Auto-envia casos sem resposta silenciosamente (ciclo automático)
-  if (silent) {
-    const pending = cases.filter(c => !c.hasFirstResponse);
-    for (const c of pending) await sendOne(c);
-    updateSummaryNums();
-  } else {
-    renderCases();
-  }
+  renderCases();
 }
 
 // ── Countdown ticker ─────────────────────────────────────────
@@ -297,7 +229,6 @@ $("btn-save").addEventListener("click", () => {
   chrome.storage.local.set({ fr_title: userConfig.title, fr_phone: userConfig.phone });
   settingsEl.style.display = "none";
 });
-$("btn-send-all").addEventListener("click", sendAll);
 $("btn-refresh").addEventListener("click", async () => {
   // Dispara verificação imediata no background
   if (sendingInProgress) return;
