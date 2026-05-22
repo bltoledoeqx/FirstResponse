@@ -1,4 +1,5 @@
 "use strict";
+importScripts("shared.js");
 
 const ALARM_NAME   = "first-response-check";
 const INTERVAL_MIN = 2;
@@ -34,6 +35,12 @@ function notify(id, title, message) {
 
 // ── Lógica principal ──────────────────────────────────────────
 async function runCheck() {
+  const lock = await chrome.storage.local.get(["fr_is_running"]);
+  if (lock.fr_is_running) {
+    console.log("[FirstResponse] Execução ignorada: já existe verificação em andamento.");
+    return;
+  }
+  await chrome.storage.local.set({ fr_is_running: true });
   const cfg  = await chrome.storage.local.get(["fr_title", "fr_phone"]);
   const tabs = await chrome.tabs.query({ url: "https://*.service-now.com/*" });
   if (!tabs.length) {
@@ -127,23 +134,16 @@ async function runCheck() {
     const sent   = [];
     const failed = [];
     const userName = result.userName;
-    const title    = cfg.fr_title || "Hosting Operations Specialist";
-    const phone    = cfg.fr_phone || "";
+    const title = cfg.fr_title || FirstResponseShared.DEFAULT_TITLE;
+    const phone = cfg.fr_phone || "";
 
     for (const c of result.pending) {
-      const isBR = (c.u_operating_country || "").trim().toUpperCase() === "BR";
-
-      const sig = `[code]
-<div style="display: flex; align-items: center;">
-<img src="https://i.postimg.cc/NFB5VZyG/equinix-logo-icon-169199-resized.png" alt="Equinix Logo" style="width: 65px; height: 65px; margin-right: 10px;">
-<div style="border-left: 1px solid #000; padding-left: 10px;">
-<br>${userName}<br><b>${title}</b><br>${phone ? "Contato: " + phone + "<br>" : ""}EQUINIX
-</div>
-</div>[/code]`;
-
-      const comment = isBR
-        ? "Estou iniciando o atendimento, favor aguardar um próximo feedback com mais informações.\nPor favor, fique à vontade para entrar em contato conosco a qualquer momento.\n\nEstamos à disposição.\n\n[code]<em>Atenciosamente,</em>[/code]\n" + sig
-        : "I'm starting the service. Please wait for a follow-up feedback with more information.\n\nFeel free to contact us at any time.\n\nWe are at your disposal.\n\n[code]<em>Sincerely,</em>[/code]\n" + sig;
+      const comment = FirstResponseShared.buildFirstResponseComment({
+        countryCode: c.u_operating_country,
+        userName,
+        title,
+        phone
+      });
 
       try {
         const patchResults = await chrome.scripting.executeScript({
@@ -193,6 +193,8 @@ async function runCheck() {
 
   } catch (err) {
     console.error("[FirstResponse] Erro geral:", err.message);
+  } finally {
+    await chrome.storage.local.set({ fr_is_running: false });
   }
 }
 
