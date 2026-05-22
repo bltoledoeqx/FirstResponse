@@ -1,6 +1,7 @@
 "use strict";
 const ALARM_NAME   = "first-response-check";
-const INTERVAL_MIN = 2;
+const INTERVAL_MIN = 1;
+const FAST_INTERVAL_MS = 2000;
 
 // ── Garante alarme sempre ativo ───────────────────────────────
 function ensureAlarm() {
@@ -21,13 +22,19 @@ chrome.alarms.onAlarm.addListener(alarm => {
   runCheck();
 });
 
+setInterval(() => {
+  runCheck();
+}, FAST_INTERVAL_MS);
+
 // ── Notificação ───────────────────────────────────────────────
 function notify(id, title, message) {
-  chrome.notifications.create(id, {
-    type:    "basic",
-    iconUrl: "icons/icon48.png",
-    title,
-    message
+  return new Promise(resolve => {
+    chrome.notifications.create(id, {
+      type:    "basic",
+      iconUrl: "icons/icon48.png",
+      title,
+      message
+    }, () => resolve());
   });
 }
 
@@ -124,7 +131,7 @@ async function runCheck() {
       for (const c of newlyArrived) {
         const prio = (c.priority || "N/A").trim() || "N/A";
         const desc = (c.short_description || "Sem descrição").trim() || "Sem descrição";
-        notify(
+        await notify(
           "new-case-" + c.sys_id + "-" + Date.now(),
           `🆕 Entrada na fila: ${c.number}`,
           `Conta: ${(c.account || "N/A").trim() || "N/A"}
