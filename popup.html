@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>First Response</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #1a1d23;
+      --surface: #21252e;
+      --border:  #2e3340;
+      --text:    #e1e4ea;
+      --muted:   #6b7280;
+      --subtle:  #3a3f4a;
+      --blue:    #4f9cf9;
+      --green:   #34d399;
+      --yellow:  #fbbf24;
+      --red:     #f87171;
+    }
+    html, body { width: 400px; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; font-size: 13px; }
+    ::-webkit-scrollbar { width: 3px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    @keyframes spin   { to { transform: rotate(360deg); } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    #app { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+    /* Header */
+    .hdr { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+    .hdr-left { display: flex; align-items: center; gap: 8px; }
+    .hdr-icon { width: 26px; height: 26px; background: var(--yellow); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+    .hdr-title { font-size: 13px; font-weight: 700; }
+    .hdr-sub   { font-size: 10px; color: var(--muted); margin-top: 1px; }
+    .hdr-right { display: flex; align-items: center; gap: 6px; }
+    .countdown { font-size: 10px; color: var(--muted); background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 10px; font-variant-numeric: tabular-nums; }
+    .countdown.ticking { color: var(--green); border-color: #34d39944; }
+    .btn-icon { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 15px; padding: 2px 4px; line-height: 1; }
+    .btn-icon:hover { color: var(--text); }
+
+    /* States */
+    .state-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+    .spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--blue); animation: spin .7s linear infinite; flex-shrink: 0; }
+    .msg { border-radius: 6px; padding: 10px 12px; font-size: 12px; display: none; line-height: 1.5; }
+    .msg-warn  { background: #2a2515; border: 1px solid #5a4a1a; color: var(--yellow); }
+    .msg-error { background: #2d1a1a; border: 1px solid #5a2a2a; color: var(--red); }
+
+    /* Settings */
+    #settings-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; display: none; animation: fadeIn .2s; }
+    .settings-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+    .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+    .field label { font-size: 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+    .field input { padding: 7px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; color: var(--text); font-family: inherit; font-size: 12px; outline: none; width: 100%; }
+    .field input:focus { border-color: var(--blue); }
+    .field .hint { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .btn-save { width: 100%; padding: 8px; background: var(--blue); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 600; margin-top: 4px; }
+    .btn-save:hover { opacity: .88; }
+    .settings-note { font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.5; padding-top: 10px; border-top: 1px solid var(--border); }
+
+    /* Summary */
+    #summary { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; display: none; animation: fadeIn .3s; }
+    .summary-top { display: flex; align-items: center; justify-content: space-between; }
+    .summary-nums { display: flex; gap: 20px; }
+    .summary-num .n { font-size: 22px; font-weight: 700; line-height: 1; }
+    .summary-num .l { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .n-red   { color: var(--red); }
+    .n-green { color: var(--green); }
+    .n-blue  { color: var(--blue); }
+    .summary-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+    .btn-send-all { padding: 6px 14px; background: var(--yellow); color: #1a1200; border: none; border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .btn-send-all:hover:not(:disabled) { opacity: .85; }
+    .btn-send-all:disabled { background: var(--subtle); color: var(--muted); cursor: not-allowed; }
+    .last-check { font-size: 10px; color: var(--muted); }
+
+    /* Cases */
+    #case-list { display: flex; flex-direction: column; gap: 6px; animation: fadeIn .3s; }
+    .case-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .case-card.needs   { border-left: 3px solid var(--yellow); }
+    .case-card.done    { border-left: 3px solid var(--green); opacity: .5; }
+    .case-card.sending { border-left: 3px solid var(--blue); }
+    .case-top  { display: flex; align-items: flex-start; gap: 8px; }
+    .case-info { flex: 1; min-width: 0; }
+    .case-num  { font-size: 12px; font-weight: 700; color: var(--blue); }
+    .case-desc { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .case-account { font-size: 10px; color: var(--muted); margin-top: 1px; opacity: .8; }
+    .case-chips { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+    .chip { font-size: 10px; padding: 1px 7px; border-radius: 10px; background: var(--subtle); color: var(--muted); }
+    .chip-br   { background: #1e2d1e; color: var(--green); }
+    .chip-en   { background: #1a2535; color: var(--blue); }
+    .chip-warn { background: #2d2515; color: var(--yellow); }
+    .chip-ok   { background: #1a2d1a; color: var(--green); }
+    .btn-send { padding: 5px 12px; background: var(--yellow); color: #1a1200; border: none; border-radius: 5px; cursor: pointer; font-family: inherit; font-size: 11px; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+    .btn-send:hover:not(:disabled) { opacity: .85; }
+    .btn-send:disabled { background: var(--subtle); color: var(--muted); cursor: not-allowed; }
+    .btn-sent { background: #1a2d1a !important; color: var(--green) !important; border: 1px solid #34d39933; cursor: default !important; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <div class="hdr">
+    <div class="hdr-left">
+      <div class="hdr-icon">⚡</div>
+      <div>
+        <div class="hdr-title">First Response</div>
+        <div class="hdr-sub" id="user-name">Carregando…</div>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <div class="countdown" id="countdown" title="Próxima verificação">—</div>
+      <button class="btn-icon" id="btn-refresh" title="Verificar agora">↺</button>
+      <button class="btn-icon" id="btn-settings" title="Configurações">⚙</button>
+    </div>
+  </div>
+
+  <div id="settings-panel">
+    <div class="settings-title">Configurações da assinatura</div>
+    <div class="field">
+      <label>Cargo</label>
+      <input id="inp-title" type="text" placeholder="Ex: Hosting Operations Specialist" />
+    </div>
+    <div class="field">
+      <label>Telefone de contato</label>
+      <input id="inp-phone" type="text" placeholder="Ex: 08008925065 / 11 3958 0325" />
+    </div>
+    <button class="btn-save" id="btn-save">Salvar</button>
+    <div class="settings-note">
+      ℹ O nome é preenchido automaticamente com o usuário logado no ServiceNow.
+    </div>
+  </div>
+
+  <div id="st-loading" class="state-row">
+    <div class="spinner"></div><span id="st-loading-msg">Inicializando…</span>
+  </div>
+  <div id="st-wrong" class="msg msg-warn"></div>
+  <div id="st-error" class="msg msg-error"></div>
+
+  <div id="summary">
+    <div class="summary-top">
+      <div class="summary-nums">
+        <div class="summary-num">
+          <div class="n n-blue"  id="s-total">0</div>
+          <div class="l">casos</div>
+        </div>
+        <div class="summary-num">
+          <div class="n n-red"   id="s-needs">0</div>
+          <div class="l">sem resposta</div>
+        </div>
+        <div class="summary-num">
+          <div class="n n-green" id="s-done">0</div>
+          <div class="l">respondidos</div>
+        </div>
+      </div>
+      <div class="summary-actions">
+        <button class="btn-send-all" id="btn-send-all">Responder todos</button>
+        <div class="last-check" id="last-check"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="case-list"></div>
+
+</div>
+<script src="popup.js"></script>
+</body>
+</html>

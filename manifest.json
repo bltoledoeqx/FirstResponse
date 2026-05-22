@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "ServiceNow First Response",
+  "version": "1.0.0",
+  "description": "Identifica e responde casos sem primeira intera\u00e7\u00e3o",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "alarms",
+    "notifications",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://*.service-now.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "First Response"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
