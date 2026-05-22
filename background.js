@@ -1,6 +1,4 @@
 "use strict";
-importScripts("shared.js");
-
 const ALARM_NAME   = "first-response-check";
 const INTERVAL_MIN = 2;
 
@@ -41,7 +39,6 @@ async function runCheck() {
     return;
   }
   await chrome.storage.local.set({ fr_is_running: true });
-  const cfg  = await chrome.storage.local.get(["fr_title", "fr_phone"]);
   const tabs = await chrome.tabs.query({ url: "https://*.service-now.com/*" });
   if (!tabs.length) {
     console.log("[FirstResponse] Nenhuma aba do ServiceNow encontrada.");
@@ -51,7 +48,7 @@ async function runCheck() {
   const tab = tabs[0];
 
   try {
-    // ── Passo 1: busca casos + identifica pendentes ───────────
+    // ── Passo 1: busca todos os casos da fila ──────────────────
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id, allFrames: false },
       world:  "MAIN",
@@ -83,28 +80,26 @@ async function runCheck() {
           const cd = await api(
             "/api/now/table/sn_customerservice_case" +
             "?sysparm_query=assigned_to=" + user.user_sys_id + "^state=21" +
-            "&sysparm_fields=sys_id,number,short_description,u_operating_country,priority,u_name_first_comment" +
+            "&sysparm_fields=sys_id,number,short_description,priority,account" +
             "&sysparm_display_value=false&sysparm_limit=100"
           );
           const cases = cd.result || [];
 
           const pending = [];
-          const p1cases = [];
 
           for (const c of cases) {
-            const hasFirst = !!(c.u_name_first_comment?.value || c.u_name_first_comment);
-            if (hasFirst) continue;
-            if ((c.priority || "").startsWith("1")) { p1cases.push(c.number); continue; }
             pending.push({
-              sys_id:              c.sys_id,
-              number:              c.number,
-              u_operating_country: c.u_operating_country?.value || c.u_operating_country || ""
+              sys_id: c.sys_id,
+              number: c.number,
+              priority: c.priority || "",
+              short_description: c.short_description || "",
+          account: c.account || "",
+              account: c.account?.display_value || c.account || ""
             });
           }
 
           return {
             pending,
-            p1cases,
             userName: user.user_display_name || user.user_name || ""
           };
         } catch (e) {
@@ -120,76 +115,43 @@ async function runCheck() {
       return;
     }
 
-    if (result.p1cases?.length) {
-      notify("p1-alert-" + Date.now(), "⚠️ Caso P1 sem resposta!", "Requer atenção manual: " + result.p1cases.join(", "));
-    }
+    const seenData = await chrome.storage.local.get(["fr_seen_case_ids"]);
+    const seenIds = new Set(seenData.fr_seen_case_ids || []);
 
-    if (!result.pending?.length) {
-      console.log("[FirstResponse]", new Date().toLocaleTimeString(), "Nenhum caso pendente.");
-      await chrome.storage.local.set({ fr_last_check: Date.now(), fr_last_result: { sent: [], p1cases: result.p1cases } });
-      return;
-    }
+    const newlyArrived = result.pending.filter(c => !seenIds.has(c.sys_id));
 
-    // ── Passo 2: envia comentários — executeScript por caso ───
-    const sent   = [];
-    const failed = [];
-    const userName = result.userName;
-    const title = cfg.fr_title || FirstResponseShared.DEFAULT_TITLE;
-    const phone = cfg.fr_phone || "";
-
-    for (const c of result.pending) {
-      const comment = FirstResponseShared.buildFirstResponseComment({
-        countryCode: c.u_operating_country,
-        userName,
-        title,
-        phone
-      });
-
-      try {
-        const patchResults = await chrome.scripting.executeScript({
-          target: { tabId: tab.id, allFrames: false },
-          world:  "MAIN",
-          func: async (sysId, cmt) => {
-            const gck = window.g_ck || "";
-            if (!gck) return { ok: false, error: "sem token" };
-            const res = await fetch("/api/now/table/sn_customerservice_case/" + sysId, {
-              method: "PATCH",
-              headers: {
-                "Accept":       "application/json",
-                "Content-Type": "application/json",
-                "X-UserToken":  gck
-              },
-              credentials: "include",
-              body: JSON.stringify({ comments: cmt })
-            });
-            return { ok: res.ok, status: res.status };
-          },
-          args: [c.sys_id, comment]
-        });
-
-        const pr = patchResults?.[0]?.result;
-        if (pr?.ok) {
-          sent.push(c.number);
-          console.log("[FirstResponse] Enviado:", c.number);
-        } else {
-          failed.push(c.number);
-          console.warn("[FirstResponse] Falha:", c.number, pr);
-        }
-      } catch (err) {
-        failed.push(c.number);
-        console.error("[FirstResponse] Erro no envio de", c.number, err.message);
+    if (newlyArrived.length) {
+      for (const c of newlyArrived) {
+        const prio = (c.priority || "N/A").trim() || "N/A";
+        const desc = (c.short_description || "Sem descrição").trim() || "Sem descrição";
+        notify(
+          "new-case-" + c.sys_id + "-" + Date.now(),
+          `🆕 Entrada na fila: ${c.number}`,
+          `Conta: ${(c.account || "N/A").trim() || "N/A"}
+Prioridade: ${prio}
+Descrição: ${desc}`
+        );
       }
     }
 
-    if (sent.length)   notify("sent-" + Date.now(), "✅ First Response enviado",  "Casos respondidos: " + sent.join(", "));
-    if (failed.length) notify("fail-" + Date.now(), "❌ Falha no envio",           "Não foi possível: "  + failed.join(", "));
-
     await chrome.storage.local.set({
-      fr_last_check:  Date.now(),
-      fr_last_result: { sent, failed, p1cases: result.p1cases }
+      fr_seen_case_ids: result.pending.map(c => c.sys_id),
+      fr_last_check: Date.now(),
+      fr_last_result: {
+        initialized: true,
+        notified: newlyArrived.map(c => ({
+          number: c.number,
+          priority: c.priority || "",
+          short_description: c.short_description || "",
+          account: c.account || ""
+        }))
+      }
     });
 
-    console.log("[FirstResponse]", new Date().toLocaleTimeString(), { sent, failed, p1: result.p1cases });
+    console.log("[FirstResponse]", new Date().toLocaleTimeString(), {
+      active: result.pending.length,
+      notified: newlyArrived.map(c => c.number)
+    });
 
   } catch (err) {
     console.error("[FirstResponse] Erro geral:", err.message);
