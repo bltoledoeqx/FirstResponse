@@ -24,13 +24,14 @@ let cases       = [];
 let tickTimer   = null;
 let nextCheckAt = null;
 const INTERVAL_MS = 2 * 60 * 1000; // 2 minutos
+let sendingInProgress = false;
 
 // ── Utils ────────────────────────────────────────────────────
 const esc = s => String(s || "")
   .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 
 function isBrazil(c) {
-  return (c.u_operating_country || "").trim().toUpperCase() === "BR";
+  return FirstResponseShared.isBrazilCountry(c.u_operating_country);
 }
 
 function fmtTime(d) {
@@ -39,24 +40,12 @@ function fmtTime(d) {
 
 function buildComment(c) {
   const name  = currentUser.user_display_name || currentUser.user_name || "";
-  const title = userConfig.title || "Hosting Operations Specialist";
-  const phone = userConfig.phone || "";
-
-  const signature = `[code]
-<div style="display: flex; align-items: center;">
-<img src="https://i.postimg.cc/NFB5VZyG/equinix-logo-icon-169199-resized.png" alt="Equinix Logo" style="width: 65px; height: 65px; margin-right: 10px;">
-<div style="border-left: 1px solid #000; padding-left: 10px;">
-<br>
-${name}<br>
-<b>${title}</b><br>
-${phone ? `Contato: ${phone}<br>` : ""}EQUINIX
-</div>
-</div>[/code]`;
-
-  if (isBrazil(c)) {
-    return `Estou iniciando o atendimento, favor aguardar um próximo feedback com mais informações.\nPor favor, fique à vontade para entrar em contato conosco a qualquer momento.\n\nEstamos à disposição.\n\n[code]<em>Atenciosamente,</em>[/code]\n${signature}`;
-  }
-  return `I'm starting the service. Please wait for a follow-up feedback with more information.\n\nFeel free to contact us at any time.\n\nWe are at your disposal.\n\n[code]<em>Sincerely,</em>[/code]\n${signature}`;
+  return FirstResponseShared.buildFirstResponseComment({
+    countryCode: c.u_operating_country,
+    userName: name,
+    title: userConfig.title || FirstResponseShared.DEFAULT_TITLE,
+    phone: userConfig.phone || ""
+  });
 }
 
 // ── Page bridge ───────────────────────────────────────────────
@@ -105,16 +94,6 @@ async function runInPage(cfg) {
             return { cases: withFlags };
           }
 
-          // ── Postar comentário ───────────────────────────────
-          if (config.action === "post_comment") {
-            await api(
-              "/api/now/table/sn_customerservice_case/" + config.sysId,
-              "PATCH",
-              { comments: config.comment }
-            );
-            return { ok: true };
-          }
-
           return { error: "unknown action" };
         } catch(e) {
           return { error: e.message };
@@ -148,7 +127,7 @@ function renderCases() {
     const stChip = c.hasFirstResponse
       ? `<span class="chip chip-ok">✓ Respondido</span>`
       : isP1
-        ? `<span class="chip" style="background:#2d1a1a;color:#f87171">🚫 P1 — ignorado</span>`
+        ? `<span class="chip" style="background:#2d1a1a;color:#f87171">🚨 P1 sem resposta</span>`
         : `<span class="chip chip-warn">⚠ Sem resposta</span>`;
     const account = c.account?.display_value || c.account || "";
 
@@ -163,18 +142,8 @@ function renderCases() {
           ${account ? `<div class="case-account">${esc(account)}</div>` : ""}
           <div class="case-chips">${langChip}${stChip}</div>
         </div>
-        ${c.hasFirstResponse
-          ? `<button class="btn-send btn-sent" disabled>✓</button>`
-          : isP1
-            ? `<button class="btn-send" disabled style="background:var(--subtle);color:var(--muted)" title="P1 não recebe resposta automática">P1</button>`
-            : `<button class="btn-send" id="btn-${c.sys_id}">Enviar</button>`
-        }
+        <button class="btn-send" disabled style="background:var(--subtle);color:var(--muted)" title="Somente notificação">Notificar</button>
       </div>`;
-
-    if (!c.hasFirstResponse) {
-      card.querySelector("#btn-" + c.sys_id)
-          .addEventListener("click", () => sendOne(c));
-    }
     caseListEl.appendChild(card);
   });
 }
@@ -185,45 +154,7 @@ function updateSummaryNums() {
   $("btn-send-all").disabled = cases.filter(c => !c.hasFirstResponse).length === 0;
 }
 
-// ── Send ──────────────────────────────────────────────────────
-async function sendOne(c) {
-  const btn  = $("btn-" + c.sys_id);
-  const card = $("card-" + c.sys_id);
-  if (!btn || c.hasFirstResponse) return;
-  if ((c.priority || "").startsWith("1")) return; // ignora P1
-
-  btn.disabled = true;
-  btn.textContent = "…";
-  if (card) card.className = "case-card sending";
-
-  const result = await runInPage({
-    action:  "post_comment",
-    sysId:   c.sys_id,
-    comment: buildComment(c)
-  });
-
-  if (result?.ok) {
-    c.hasFirstResponse = true;
-    if (btn) { btn.className = "btn-send btn-sent"; btn.textContent = "✓"; }
-    if (card) card.className = "case-card done";
-    updateSummaryNums();
-  } else {
-    if (btn) { btn.disabled = false; btn.textContent = "Retry"; }
-    if (card) card.className = "case-card needs";
-    stError.textContent = "Erro ao enviar " + c.number + ": " + (result?.error || "desconhecido");
-    stError.style.display = "block";
-  }
-}
-
-async function sendAll() {
-  const btn = $("btn-send-all");
-  btn.disabled = true;
-  btn.textContent = "Enviando…";
-  for (const c of cases.filter(x => !x.hasFirstResponse)) {
-    await sendOne(c);
-  }
-  btn.textContent = "Responder todos";
-}
+// ── Send removido: extensão em modo somente notificação
 
 // ── Load queue ────────────────────────────────────────────────
 async function loadQueue(silent = false) {
@@ -262,14 +193,7 @@ async function loadQueue(silent = false) {
     return;
   }
 
-  // Auto-envia casos sem resposta silenciosamente (ciclo automático)
-  if (silent) {
-    const pending = cases.filter(c => !c.hasFirstResponse);
-    for (const c of pending) await sendOne(c);
-    updateSummaryNums();
-  } else {
-    renderCases();
-  }
+  renderCases();
 }
 
 // ── Countdown ticker ─────────────────────────────────────────
@@ -305,9 +229,9 @@ $("btn-save").addEventListener("click", () => {
   chrome.storage.local.set({ fr_title: userConfig.title, fr_phone: userConfig.phone });
   settingsEl.style.display = "none";
 });
-$("btn-send-all").addEventListener("click", sendAll);
 $("btn-refresh").addEventListener("click", async () => {
   // Dispara verificação imediata no background
+  if (sendingInProgress) return;
   chrome.runtime.sendMessage({ action: "check_now" });
   nextCheckAt = Date.now() + INTERVAL_MS;
   await loadQueue(false);
