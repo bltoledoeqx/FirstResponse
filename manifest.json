@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ServiceNow First Response",
   "version": "1.0.0",
-  "description": "Identifica e responde casos sem primeira intera\u00e7\u00e3o",
+  "description": "Identifica e responde casos sem primeira interação",
   "permissions": [
     "activeTab",
     "scripting",
@@ -25,5 +25,15 @@
   },
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "shared.js"
+      ],
+      "matches": [
+        "https://*.service-now.com/*"
+      ]
+    }
+  ]
 }

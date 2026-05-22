@@ -24,13 +24,14 @@ let cases       = [];
 let tickTimer   = null;
 let nextCheckAt = null;
 const INTERVAL_MS = 2 * 60 * 1000; // 2 minutos
+let sendingInProgress = false;
 
 // ── Utils ────────────────────────────────────────────────────
 const esc = s => String(s || "")
   .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 
 function isBrazil(c) {
-  return (c.u_operating_country || "").trim().toUpperCase() === "BR";
+  return FirstResponseShared.isBrazilCountry(c.u_operating_country);
 }
 
 function fmtTime(d) {
@@ -39,24 +40,12 @@ function fmtTime(d) {
 
 function buildComment(c) {
   const name  = currentUser.user_display_name || currentUser.user_name || "";
-  const title = userConfig.title || "Hosting Operations Specialist";
-  const phone = userConfig.phone || "";
-
-  const signature = `[code]
-<div style="display: flex; align-items: center;">
-<img src="https://i.postimg.cc/NFB5VZyG/equinix-logo-icon-169199-resized.png" alt="Equinix Logo" style="width: 65px; height: 65px; margin-right: 10px;">
-<div style="border-left: 1px solid #000; padding-left: 10px;">
-<br>
-${name}<br>
-<b>${title}</b><br>
-${phone ? `Contato: ${phone}<br>` : ""}EQUINIX
-</div>
-</div>[/code]`;
-
-  if (isBrazil(c)) {
-    return `Estou iniciando o atendimento, favor aguardar um próximo feedback com mais informações.\nPor favor, fique à vontade para entrar em contato conosco a qualquer momento.\n\nEstamos à disposição.\n\n[code]<em>Atenciosamente,</em>[/code]\n${signature}`;
-  }
-  return `I'm starting the service. Please wait for a follow-up feedback with more information.\n\nFeel free to contact us at any time.\n\nWe are at your disposal.\n\n[code]<em>Sincerely,</em>[/code]\n${signature}`;
+  return FirstResponseShared.buildFirstResponseComment({
+    countryCode: c.u_operating_country,
+    userName: name,
+    title: userConfig.title || FirstResponseShared.DEFAULT_TITLE,
+    phone: userConfig.phone || ""
+  });
 }
 
 // ── Page bridge ───────────────────────────────────────────────
@@ -216,6 +205,8 @@ async function sendOne(c) {
 }
 
 async function sendAll() {
+  if (sendingInProgress) return;
+  sendingInProgress = true;
   const btn = $("btn-send-all");
   btn.disabled = true;
   btn.textContent = "Enviando…";
@@ -223,6 +214,7 @@ async function sendAll() {
     await sendOne(c);
   }
   btn.textContent = "Responder todos";
+  sendingInProgress = false;
 }
 
 // ── Load queue ────────────────────────────────────────────────
@@ -308,6 +300,7 @@ $("btn-save").addEventListener("click", () => {
 $("btn-send-all").addEventListener("click", sendAll);
 $("btn-refresh").addEventListener("click", async () => {
   // Dispara verificação imediata no background
+  if (sendingInProgress) return;
   chrome.runtime.sendMessage({ action: "check_now" });
   nextCheckAt = Date.now() + INTERVAL_MS;
   await loadQueue(false);
